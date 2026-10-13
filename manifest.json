@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omateams",
   "name": "Omateams",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "Divanyx",
   "license": "MIT",
   "homepage": "https://github.com/Divanyx/omateams",
@@ -37,6 +37,7 @@
       "useShellFont": true,
       "zoom": 100,
       "closeAction": "Hide window",
+      "memoryLimit": 2048,
       "url": "https://teams.cloud.microsoft/"
     },
     "schema": [
@@ -104,6 +105,16 @@
         ],
         "defaultValue": "Hide window",
         "description": "Hide keeps Teams running for the badge and notifications; Quit ends the process. Ctrl+Q always quits."
+      },
+      {
+        "key": "memoryLimit",
+        "type": "integer",
+        "label": "Reload Teams in the background above (MB)",
+        "min": 0,
+        "max": 16384,
+        "step": 256,
+        "defaultValue": 2048,
+        "description": "Teams grows over a long session. Once its page uses more than this, it is reloaded while the window has been out of sight for ten minutes and no call is running, at most once an hour. 0 never reloads."
       },
       {
         "key": "url",
