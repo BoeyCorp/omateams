@@ -3,11 +3,13 @@ import QtQuick.Window
 import QtWebEngine
 import "Theme.js" as Theme
 import "WebAuth.js" as WebAuth
+import "Media.js" as Media
 
 // The Teams window. The real Teams web client runs in a WebEngineView; this
 // file owns everything around it: the persistent profile, the Omarchy theme
 // stylesheet and its live reload, desktop notifications, downloads, sign-in
-// popups, the status file the bar widget reads, and the socket commands the
+// popups, the reload that keeps a long-running page from growing without
+// bound, the status file the bar widget reads, and the socket commands the
 // widget and the CLI send.
 Window {
   id: win
@@ -32,6 +34,8 @@ Window {
   readonly property bool hideOnClose: settings.closeAction !== "Quit"
   readonly property string fontFamily: settings.useShellFont === false ? "" : "monospace"
   readonly property real zoom: Math.max(0.5, Math.min(3, (Number(settings.zoom) || 100) / 100))
+  // MiB the Teams page may reach before it is reloaded in the background; 0 never.
+  readonly property int memoryLimit: settings.memoryLimit === undefined ? 2048 : Math.max(0, Number(settings.memoryLimit) || 0)
 
   property var themeColors: ({})
   readonly property var themePalette: Theme.palette(themeColors)
@@ -45,6 +49,19 @@ Window {
   property var pendingNotifications: ({})
   property bool quitting: false
   property int windowedVisibility: Window.Windowed
+
+  // Out of sight: hidden, or on a workspace Hyprland is not showing.
+  property bool exposed: true
+  readonly property bool concealed: !win.visible || !exposed
+  property real concealedSince: 0
+  property int pageMemory: -1
+  property real lastRecycle: 0
+  property bool recycling: false
+  property int recyclePid: 0
+  // A page must stay out of sight this long before it is reloaded, so a
+  // window someone just hid for a moment is never pulled from under them.
+  readonly property int recycleIdleMs: 10 * 60 * 1000
+  readonly property int recycleSpacingMs: 60 * 60 * 1000
 
   readonly property string focusCommand:
     "hyprctl dispatch 'hl.dsp.focus({ window = \"class:omateams\" })' >/dev/null 2>&1"
@@ -67,6 +84,10 @@ Window {
     }
   }
   onVisibleChanged: statusTimer.restart()
+  onConcealedChanged: {
+    concealedSince = concealed ? Date.now() : 0
+    if (!concealed) revive()
+  }
   onActiveChanged: statusTimer.restart()
   onWidthChanged: geometryTimer.restart()
   onHeightChanged: geometryTimer.restart()
@@ -75,6 +96,7 @@ Window {
 
   Component.onCompleted: {
     installWebAuthScript()
+    installMediaScript()
     Sys.watchExposure(win)
     loadSettings()
     restoreGeometry()
@@ -87,6 +109,7 @@ Window {
     ready = true
     view.url = startUrl.length > 0 ? startUrl : (settings.url || defaultUrl)
     writeStatus()
+    memoryRecheck.restart()
   }
 
   // ------------------------------------------------------------ settings
@@ -147,6 +170,18 @@ Window {
     profile.userScripts.insert(script)
   }
 
+  // Counts the page's live microphone, camera and screen tracks, so the
+  // background reload can tell a call from an idle page. See Media.js.
+  function installMediaScript() {
+    var script = WebEngine.script()
+    script.name = "omateams-media"
+    script.sourceCode = Media.pageScript()
+    script.injectionPoint = WebEngineScript.DocumentCreation
+    script.worldId = WebEngineScript.MainWorld
+    script.runOnSubframes = false
+    profile.userScripts.insert(script)
+  }
+
   function applyThemeLive() {
     if (!ready) return
     var css = JSON.stringify(themeCss)
@@ -172,6 +207,10 @@ Window {
       activity: activity,
       title: String(view.title || ""),
       url: String(view.url || ""),
+      memory: pageMemory,
+      memoryLimit: memoryLimit,
+      lastReload: lastRecycle,
+      reloading: recycling,
       updated: Date.now()
     }
   }
@@ -213,6 +252,58 @@ Window {
       + "})")
   }
 
+  // ------------------------------------------------------------ memory
+  // Teams never lets go of what a long session piles up: after days in the
+  // background its page holds several GiB, where a fresh one needs a few
+  // hundred MiB. A browser tab gets reloaded or discarded now and then; this
+  // window may run hidden for weeks, so it does that itself, and only while
+  // nobody is looking and no call is going on.
+  function checkMemory() {
+    if (recycling) return
+    pageMemory = Sys.processMemory(view.renderProcessPid)
+    statusTimer.restart()
+    if (memoryLimit <= 0 || pageMemory <= memoryLimit) return
+    if (!concealed || win.active || Date.now() - concealedSince < recycleIdleMs) return
+    // A limit set below what a fresh Teams needs must not turn into a loop.
+    if (Date.now() - lastRecycle < recycleSpacingMs) return
+    if (view.recentlyAudible || view.loading) return
+    view.runJavaScript("window.__omateamsInCall ? window.__omateamsInCall() : false", function(inCall) {
+      if (inCall !== true && win.concealed && !win.active) win.recycle()
+    })
+  }
+
+  // The page is discarded and brought back once its renderer process has
+  // ended, so the new page starts in a fresh process and the old one's memory
+  // goes back to the system. A plain reload keeps the process and with it
+  // nearly all of that memory. Chromium refuses to discard a page that is
+  // shown, so the view is taken off screen meanwhile; the window is out of
+  // sight anyway, and showing it brings the page back at once.
+  function recycle() {
+    if (recycling) return
+    lastRecycle = Date.now()
+    recyclePid = view.renderProcessPid
+    recycling = true
+    view.visible = false
+    view.lifecycleState = WebEngineView.LifecycleState.Discarded
+    if (view.lifecycleState !== WebEngineView.LifecycleState.Discarded) {
+      view.visible = true
+      recycling = false
+      view.reload()
+    } else {
+      reviveTimer.restart()
+    }
+    statusTimer.restart()
+  }
+
+  function revive() {
+    if (!recycling) return
+    reviveTimer.stop()
+    recycling = false
+    view.lifecycleState = WebEngineView.LifecycleState.Active
+    view.visible = true
+    memoryRecheck.restart()
+  }
+
   function restoreGeometry() {
     var s = safeJson(Sys.readFile(windowStatePath))
     if (!s) return
@@ -230,6 +321,7 @@ Window {
       Sys.reply(connection, "ok")
       break
     case "status": Sys.reply(connection, JSON.stringify(statusObject())); break
+    case "reload": recycle(); Sys.reply(connection, "ok"); break
     case "reload-theme": loadTheme(); refreshRounding(); Sys.reply(connection, "ok"); break
     case "quit": Sys.reply(connection, "ok"); quit(); break
     default: Sys.reply(connection, "unknown command: " + cmd)
@@ -340,7 +432,11 @@ Window {
       }
     }
     function onCommand(connection, line) { win.handleCommand(connection, line) }
-    function onExposed(window) { if (window === win) win.repaintPage() }
+    function onExposureChanged(window, exposed) {
+      if (window !== win) return
+      win.exposed = exposed
+      if (exposed) win.repaintPage()
+    }
   }
 
   Connections {
@@ -369,6 +465,18 @@ Window {
     onTriggered: { win.loadTheme(); win.refreshRounding(); Sys.watch(win.colorsPath); Sys.watch(win.omarchyState) }
   }
   Timer { id: reloadTimer; interval: 1500; onTriggered: view.reload() }
+  // Waits for the discarded page's renderer to exit, for half a minute at most.
+  Timer {
+    id: reviveTimer
+    interval: 1000
+    repeat: true
+    property int ticks: 0
+    onRunningChanged: if (running) ticks = 0
+    onTriggered: if (++ticks >= 30 || Sys.processMemory(win.recyclePid) < 0) win.revive()
+  }
+  Timer { id: memoryTimer; interval: 5 * 60 * 1000; repeat: true; running: true; onTriggered: win.checkMemory() }
+  // Reads the size of the fresh page once it has settled after a reload.
+  Timer { id: memoryRecheck; interval: 90 * 1000; onTriggered: win.checkMemory() }
 
   Shortcut { sequences: ["Ctrl+Q"]; onActivated: win.quit() }
   Shortcut { sequences: ["Ctrl+W"]; onActivated: win.hide() }

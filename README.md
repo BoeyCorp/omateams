@@ -62,8 +62,9 @@ o.bind("SUPER + SHIFT + T", "Teams", "omateams toggle")
 
 `omarchy plugin update omateams` is enough to update: on the next shell start
 the plugin notices the new sources (or a Qt upgrade) and rebuilds the window.
-An open Teams window keeps running and picks up the new build when it is next
-started. `~/.config/omarchy/plugins/omateams/install.sh` still works by hand and
+A Teams window running hidden in the background is restarted on the new build
+right away; an open one keeps running and picks it up when it is next started
+(or after it is hidden). `~/.config/omarchy/plugins/omateams/install.sh` still works by hand and
 rebuilds unconditionally.
 
 Remove with `~/.config/omarchy/plugins/omateams/uninstall.sh` (`--purge` also
@@ -95,6 +96,7 @@ Settings live on the widget's entry in `~/.config/omarchy/shell.json`
 | `useShellFont`    | `true`                          | Render Teams in the shell's monospace family |
 | `zoom`            | `100`                           | Zoom in percent |
 | `closeAction`     | `Hide window`                   | What the window's close button does; `Quit` ends the process |
+| `memoryLimit`     | `2048`                          | MB the Teams page may reach before it is reloaded in the background (see Memory below); `0` never |
 | `url`             | `https://teams.cloud.microsoft/` | Teams endpoint |
 
 ## CLI
@@ -104,7 +106,8 @@ omateams                 open (or focus) the window, starting Teams if needed
 omateams --hidden        make sure Teams runs, without showing the window
 omateams toggle          show / hide
 omateams show | hide
-omateams status          JSON: running, unread, visible, title, pid
+omateams reload          start Teams over in a fresh page (frees what it piled up)
+omateams status          JSON: running, unread, visible, title, pid, memory (MiB)
 omateams reload-theme    re-read colors.toml and Hyprland's rounding
 omateams quit
 ```
@@ -149,8 +152,18 @@ under `/usr/share/omarchy/themes`.
   sign-in used to spin forever and block the next attempt as well; it now gives
   up after the site's own timeout, tells you so, and leaves the page free to
   offer another way in.
-- **Memory.** Teams is a heavy web app; expect the footprint of a browser tab
-  with Teams in it. `runInBackground: false` starts it only on demand.
+- **Memory.** Teams is a heavy web app; right after sign-in its page takes
+  about what a browser tab with Teams in it does, a few hundred MB. It does
+  not stay there: Teams keeps what a session piles up, and a page that runs
+  hidden for days grows to several GB. A browser tab gets reloaded now and
+  then; this window may never be, so omateams does it itself. Every five
+  minutes it reads the size of the page (`omateams status` shows it as
+  `memory`); once that passes `memoryLimit`, the window has been out of sight
+  for ten minutes and no microphone, camera or screen share is live, the page
+  is started over, at most once an hour. A hidden window is discarded and
+  reloaded, which frees the old page completely; the badge is back within
+  a minute. `omateams reload` does the same on demand, and `memoryLimit: 0`
+  turns it off. `runInBackground: false` starts Teams only on demand.
 - **Screen sharing** goes through PipeWire and the desktop portal
   (`xdg-desktop-portal-hyprland`), which Omarchy ships.
 - **What theming can't reach.** Colors baked into images, avatars and a few

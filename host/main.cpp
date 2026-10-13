@@ -75,10 +75,10 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QStringLiteral(
         "Microsoft Teams in an Omarchy-themed window.\n\n"
         "Commands (sent to the running instance, or start one):\n"
-        "  start | show | hide | toggle | quit | status | reload-theme"));
+        "  start | show | hide | toggle | reload | quit | status | reload-theme"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument(QStringLiteral("command"), QStringLiteral("start, show, hide, toggle, quit, status or reload-theme"), QStringLiteral("[command]"));
+    parser.addPositionalArgument(QStringLiteral("command"), QStringLiteral("start, show, hide, toggle, reload, quit, status or reload-theme"), QStringLiteral("[command]"));
     QCommandLineOption hiddenOption(QStringLiteral("hidden"), QStringLiteral("Start without showing the window."));
     QCommandLineOption urlOption(QStringLiteral("url"), QStringLiteral("Teams URL to open."), QStringLiteral("url"));
     QCommandLineOption debugOption(QStringLiteral("debug-port"), QStringLiteral("Expose the Chromium remote debugging port."), QStringLiteral("port"));
@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
         ? (parser.isSet(hiddenOption) ? QStringLiteral("start") : QStringLiteral("show"))
         : positional.first();
     const QStringList known = { QStringLiteral("start"), QStringLiteral("show"), QStringLiteral("hide"), QStringLiteral("toggle"),
-                                QStringLiteral("quit"), QStringLiteral("status"), QStringLiteral("reload-theme") };
+                                QStringLiteral("reload"), QStringLiteral("quit"), QStringLiteral("status"), QStringLiteral("reload-theme") };
     QTextStream out(stdout), err(stderr);
     if (!known.contains(command)) {
         err << "omateams: unknown command '" << command << "'\n";
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
             out << reply << "\n";
         return 0;
     }
-    if (command == QLatin1String("hide") || command == QLatin1String("quit")
+    if (command == QLatin1String("hide") || command == QLatin1String("quit") || command == QLatin1String("reload")
         || command == QLatin1String("status") || command == QLatin1String("reload-theme")) {
         if (command == QLatin1String("status"))
             out << "{\"running\": false}\n";

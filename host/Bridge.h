@@ -38,12 +38,13 @@ public:
     Q_INVOKABLE int runCapture(const QString &program, const QStringList &arguments);
     Q_INVOKABLE void reply(int connection, const QString &text);
     Q_INVOKABLE void watchExposure(QWindow *window);
+    Q_INVOKABLE int processMemory(int pid) const;
 
 signals:
     void fileChanged(const QString &path);
     void processFinished(int id, int exitCode, const QString &output);
     void command(int connection, const QString &line);
-    void exposed(QWindow *window);
+    void exposureChanged(QWindow *window, bool exposed);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

@@ -38,6 +38,8 @@ Item {
   property string title: ""
   property int pid: 0
   property bool autostartAttempted: false
+  property string hostVersion: ""
+  property bool replaceAttempted: false
   // "", "building", "needs-deps" or "failed": the state of the automatic build.
   property string buildState: ""
   property string missingPackages: ""
@@ -68,6 +70,7 @@ Item {
       zoom: Number(settings.zoom) || 100,
       closeAction: settings.closeAction === "Quit" ? "Quit" : "Hide window",
       runInBackground: settings.runInBackground !== false,
+      memoryLimit: settings.memoryLimit === undefined ? 2048 : Math.max(0, Number(settings.memoryLimit) || 0),
       updated: Date.now()
     }
     writeSettings(JSON.stringify(payload, null, 2) + "\n")
@@ -148,6 +151,7 @@ Item {
     windowVisible = s.visible === true
     title = String(s.title || "")
     pid = parseInt(s.pid, 10) || 0
+    hostVersion = String(s.version || "")
     if (s.running !== true || pid <= 0) { markStopped(); return }
     running = true
     // A killed host leaves its last file behind; the pid says whether it lives.
@@ -155,6 +159,19 @@ Item {
       pidCheck.command = ["kill", "-0", String(pid)]
       pidCheck.running = true
     }
+    maybeReplaceHost()
+  }
+
+  // An update rebuilds the host, but a window that runs hidden from login is
+  // never restarted and would keep the old build for good. While it is out
+  // of sight, the old instance is swapped for the new one; a visible window
+  // is left alone and picks the new build up on its next start.
+  function maybeReplaceHost() {
+    var wanted = manifest && manifest.version ? String(manifest.version) : ""
+    if (replaceAttempted || !running || windowVisible || !installed || buildState !== "") return
+    if (wanted.length === 0 || hostVersion.length === 0 || hostVersion === "dev" || hostVersion === wanted) return
+    replaceAttempted = true
+    Quickshell.execDetached(["sh", "-c", '"$1" quit; sleep 2; exec "$1" --hidden', "omateams", hostBinary])
   }
 
   function markStopped() {
@@ -190,6 +207,7 @@ Item {
       root.installed = exitCode === 0
       root.installedChecked = true
       root.maybeAutostart()
+      root.maybeReplaceHost()
     }
   }
 

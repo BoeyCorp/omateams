@@ -157,11 +157,33 @@ bool Bridge::eventFilter(QObject *watched, QEvent *event)
             const bool was = window->property("omateamsExposed").toBool();
             const bool now = window->isExposed();
             window->setProperty("omateamsExposed", now);
-            if (now && !was)
-                emit exposed(window);
+            if (now != was)
+                emit exposureChanged(window, now);
         }
     }
     return QObject::eventFilter(watched, event);
+}
+
+// Resident plus swapped-out memory of one process, in MiB, or -1 when it
+// cannot be read. Swap counts too: on a machine short of memory the kernel
+// pushes an idle page out, and RSS alone would hide how big it has grown.
+int Bridge::processMemory(int pid) const
+{
+    if (pid <= 0)
+        return -1;
+    QFile file(QStringLiteral("/proc/%1/status").arg(pid));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return -1;
+    qint64 kib = 0;
+    bool found = false;
+    const QList<QByteArray> lines = file.readAll().split('\n');
+    for (const QByteArray &line : lines) {
+        if (line.startsWith("VmRSS:") || line.startsWith("VmSwap:")) {
+            kib += line.mid(line.indexOf(':') + 1).trimmed().split(' ').value(0).toLongLong();
+            found = true;
+        }
+    }
+    return found ? static_cast<int>(kib / 1024) : -1;
 }
 
 void Bridge::acceptConnection()
