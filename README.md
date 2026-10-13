@@ -96,7 +96,7 @@ Settings live on the widget's entry in `~/.config/omarchy/shell.json`
 | `useShellFont`    | `true`                          | Render Teams in the shell's monospace family |
 | `zoom`            | `100`                           | Zoom in percent |
 | `closeAction`     | `Hide window`                   | What the window's close button does; `Quit` ends the process |
-| `memoryLimit`     | `2048`                          | MB the Teams page may reach before it is reloaded in the background (see Memory below); `0` never |
+| `memoryLimit`     | `2048`                          | MB the Teams page may reach before it is reloaded in the background, raised to 1.5× a fresh page for heavy accounts (see Memory below); `0` never |
 | `url`             | `https://teams.cloud.microsoft/` | Teams endpoint |
 
 ## CLI
@@ -153,17 +153,20 @@ under `/usr/share/omarchy/themes`.
   up after the site's own timeout, tells you so, and leaves the page free to
   offer another way in.
 - **Memory.** Teams is a heavy web app; right after sign-in its page takes
-  about what a browser tab with Teams in it does, a few hundred MB. It does
-  not stay there: Teams keeps what a session piles up, and a page that runs
-  hidden for days grows to several GB. A browser tab gets reloaded now and
-  then; this window may never be, so omateams does it itself. Every five
-  minutes it reads the size of the page (`omateams status` shows it as
-  `memory`); once that passes `memoryLimit`, the window has been out of sight
-  for ten minutes and no microphone, camera or screen share is live, the page
-  is started over, at most once an hour. A hidden window is discarded and
-  reloaded, which frees the old page completely; the badge is back within
-  a minute. `omateams reload` does the same on demand, and `memoryLimit: 0`
-  turns it off. `runInBackground: false` starts Teams only on demand.
+  what a browser tab with Teams in it does, from a few hundred MB to over
+  2 GB for a busy tenant. It does not stay there: Teams keeps what a session
+  piles up, and a page that runs hidden for days grows by several GB. A
+  browser tab gets reloaded now and then; this window may never be, so
+  omateams does it itself. Every five minutes it reads the size of the page
+  (`omateams status` shows it as `memory`); ten minutes after a load it notes
+  what the settled page takes (`memoryBaseline`). Once the page passes the
+  larger of `memoryLimit` and one and a half times that, the window has been
+  out of sight for ten minutes and no microphone, camera or screen share is
+  live, the page is started over, at most once an hour. It is discarded and
+  reloaded in a fresh process, which frees the old page completely; the
+  badge is back within a minute. `omateams reload` does the same on demand,
+  and `memoryLimit: 0` turns it off. `runInBackground: false` starts Teams
+  only on demand.
 - **Screen sharing** goes through PipeWire and the desktop portal
   (`xdg-desktop-portal-hyprland`), which Omarchy ships.
 - **What theming can't reach.** Colors baked into images, avatars and a few

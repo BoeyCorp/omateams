@@ -55,6 +55,12 @@ Window {
   readonly property bool concealed: !win.visible || !exposed
   property real concealedSince: 0
   property int pageMemory: -1
+  // What this account's page takes once it has settled after a load, and the
+  // limit that follows from it; see checkMemory().
+  property int pageBaseline: -1
+  property real pageLoadedAt: 0
+  readonly property int effectiveLimit: memoryLimit <= 0 ? 0 : Math.max(memoryLimit, Math.round(pageBaseline * 1.5))
+  readonly property int baselineDelayMs: 10 * 60 * 1000
   property real lastRecycle: 0
   property bool recycling: false
   property int recyclePid: 0
@@ -108,6 +114,7 @@ Window {
     Sys.watch(configDir)
     ready = true
     view.url = startUrl.length > 0 ? startUrl : (settings.url || defaultUrl)
+    pageLoadedAt = Date.now()
     writeStatus()
     memoryRecheck.restart()
   }
@@ -208,7 +215,8 @@ Window {
       title: String(view.title || ""),
       url: String(view.url || ""),
       memory: pageMemory,
-      memoryLimit: memoryLimit,
+      memoryBaseline: pageBaseline,
+      memoryLimit: effectiveLimit,
       lastReload: lastRecycle,
       reloading: recycling,
       updated: Date.now()
@@ -258,11 +266,19 @@ Window {
   // hundred MiB. A browser tab gets reloaded or discarded now and then; this
   // window may run hidden for weeks, so it does that itself, and only while
   // nobody is looking and no call is going on.
+  //
+  // How big a fresh page is depends on the account: a busy tenant starts at
+  // over 2 GiB where a small one needs a few hundred MiB. So the page is
+  // measured once it has settled, and reloading starts only at half as much
+  // again on top, or at memoryLimit if that is higher; anything else would
+  // reload a page that cannot get any smaller.
   function checkMemory() {
     if (recycling) return
     pageMemory = Sys.processMemory(view.renderProcessPid)
+    if (pageBaseline < 0 && pageMemory > 0 && Date.now() - pageLoadedAt >= baselineDelayMs)
+      pageBaseline = pageMemory
     statusTimer.restart()
-    if (memoryLimit <= 0 || pageMemory <= memoryLimit) return
+    if (effectiveLimit <= 0 || pageBaseline < 0 || pageMemory <= effectiveLimit) return
     if (!concealed || win.active || Date.now() - concealedSince < recycleIdleMs) return
     // A limit set below what a fresh Teams needs must not turn into a loop.
     if (Date.now() - lastRecycle < recycleSpacingMs) return
@@ -289,6 +305,8 @@ Window {
       view.visible = true
       recycling = false
       view.reload()
+      pageBaseline = -1
+      pageLoadedAt = Date.now()
     } else {
       reviveTimer.restart()
     }
@@ -301,6 +319,8 @@ Window {
     recycling = false
     view.lifecycleState = WebEngineView.LifecycleState.Active
     view.visible = true
+    pageBaseline = -1
+    pageLoadedAt = Date.now()
     memoryRecheck.restart()
   }
 
