@@ -113,7 +113,8 @@ Window {
     Sys.watch(settingsPath)
     Sys.watch(configDir)
     ready = true
-    view.url = startUrl.length > 0 ? startUrl : (settings.url || defaultUrl)
+    view.url = settings.url || defaultUrl
+    if (startUrl.length > 0) openLink(startUrl)
     pageLoadedAt = Date.now()
     writeStatus()
     memoryRecheck.restart()
@@ -333,7 +334,9 @@ Window {
 
   function handleCommand(connection, line) {
     var cmd = line.split(/\s+/)[0]
+    var arg = String(line).slice(cmd.length).trim()
     switch (cmd) {
+    case "open": openLink(arg); Sys.reply(connection, "ok"); break
     case "show": showWindow(); Sys.reply(connection, "ok"); break
     case "hide": win.hide(); Sys.reply(connection, "ok"); break
     case "toggle":
@@ -346,6 +349,17 @@ Window {
     case "quit": Sys.reply(connection, "ok"); quit(); break
     default: Sys.reply(connection, "unknown command: " + cmd)
     }
+  }
+
+  // A meeting or chat link handed over by another app (Omaoutlook, the
+  // desktop's msteams: handler). Teams links load in the window; an msteams:
+  // deep link is the same path on the web client.
+  function openLink(url) {
+    var u = String(url || "")
+    if (/^msteams:/i.test(u)) u = "https://teams.microsoft.com" + u.replace(/^msteams:\/*/i, "/")
+    showWindow()
+    if (isTeamsOrigin(u)) view.url = u
+    else if (u.length > 0) Qt.openUrlExternally(u)
   }
 
   function quit() {

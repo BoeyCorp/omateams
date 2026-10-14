@@ -75,10 +75,10 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QStringLiteral(
         "Microsoft Teams in an Omarchy-themed window.\n\n"
         "Commands (sent to the running instance, or start one):\n"
-        "  start | show | hide | toggle | reload | quit | status | reload-theme"));
+        "  start | show | hide | toggle | open <url> | reload | quit | status | reload-theme"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument(QStringLiteral("command"), QStringLiteral("start, show, hide, toggle, reload, quit, status or reload-theme"), QStringLiteral("[command]"));
+    parser.addPositionalArgument(QStringLiteral("command"), QStringLiteral("start, show, hide, toggle, open, reload, quit, status or reload-theme"), QStringLiteral("[command] [url]"));
     QCommandLineOption hiddenOption(QStringLiteral("hidden"), QStringLiteral("Start without showing the window."));
     QCommandLineOption urlOption(QStringLiteral("url"), QStringLiteral("Teams URL to open."), QStringLiteral("url"));
     QCommandLineOption debugOption(QStringLiteral("debug-port"), QStringLiteral("Expose the Chromium remote debugging port."), QStringLiteral("port"));
@@ -89,25 +89,39 @@ int main(int argc, char *argv[])
 
     // Bare `omateams` opens the window; `omateams --hidden` (the autostart
     // path) only makes sure an instance exists and never brings it forward.
-    const QStringList positional = parser.positionalArguments();
+    // A bare link (msteams: or a meeting URL handed over by another app) means open.
+    QStringList positional = parser.positionalArguments();
+    if (!positional.isEmpty() && positional.first().contains(QLatin1Char(':')))
+        positional.prepend(QStringLiteral("open"));
     const QString command = positional.isEmpty()
         ? (parser.isSet(hiddenOption) ? QStringLiteral("start") : QStringLiteral("show"))
         : positional.first();
     const QStringList known = { QStringLiteral("start"), QStringLiteral("show"), QStringLiteral("hide"), QStringLiteral("toggle"),
-                                QStringLiteral("reload"), QStringLiteral("quit"), QStringLiteral("status"), QStringLiteral("reload-theme") };
+                                QStringLiteral("open"), QStringLiteral("reload"), QStringLiteral("quit"), QStringLiteral("status"),
+                                QStringLiteral("reload-theme") };
     QTextStream out(stdout), err(stderr);
     if (!known.contains(command)) {
         err << "omateams: unknown command '" << command << "'\n";
         return 2;
     }
 
+    const QString target = positional.value(1);
+    if (command == QLatin1String("open") && target.isEmpty()) {
+        err << "omateams: open needs a link\n";
+        return 2;
+    }
+    const QString line = command == QLatin1String("open")
+        ? QStringLiteral("open ") + QString(target).remove(QLatin1Char('\n')).remove(QLatin1Char('\r'))
+        : command;
+
     QString reply;
     if (command == QLatin1String("start") && sendToRunning(QStringLiteral("status"), &reply))
         return 0;
-    if (sendToRunning(command, &reply)) {
+    if (sendToRunning(line, &reply)) {
         if (!reply.isEmpty())
             out << reply << "\n";
-        return 0;
+        // An instance from an older build does not know every command.
+        return reply.startsWith(QLatin1String("unknown command")) ? 1 : 0;
     }
     if (command == QLatin1String("hide") || command == QLatin1String("quit") || command == QLatin1String("reload")
         || command == QLatin1String("status") || command == QLatin1String("reload-theme")) {
@@ -133,7 +147,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QStringLiteral(OMATEAMS_VERSION));
     engine.setInitialProperties({
         { QStringLiteral("startHidden"), parser.isSet(hiddenOption) },
-        { QStringLiteral("startUrl"), parser.value(urlOption) },
+        { QStringLiteral("startUrl"), command == QLatin1String("open") ? target : parser.value(urlOption) },
     });
 
     // OMATEAMS_QML_DIR points the host at QML on disk for development; the

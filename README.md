@@ -105,6 +105,8 @@ Settings live on the widget's entry in `~/.config/omarchy/shell.json`
 omateams                 open (or focus) the window, starting Teams if needed
 omateams --hidden        make sure Teams runs, without showing the window
 omateams toggle          show / hide
+omateams open <link>     open a Teams meeting or chat link (https://teams.microsoft.com/l/…
+                         or msteams:) in the window; Omaoutlook sends invitations here
 omateams show | hide
 omateams reload          start Teams over in a fresh page (frees what it piled up)
 omateams status          JSON: running, unread, visible, title, pid, memory (MiB)
